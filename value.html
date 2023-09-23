@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Sunburst Chart</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.2.1/dist/css/bootstrap.min.css"
+        integrity="sha384-GJzZqFGwb1QTTN6wy59ffF1BuGJpLSa9DkKMp0DgiMDm4iYMj70gZWKYbI706tWS" crossorigin="anonymous">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<style>
+    * {
+        font-family: system-ui, -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+
+    .main {
+        margin-top: 80px;
+    }
+
+    #sunburst {
+        position: relative;
+    }
+
+    #breadcrumb {
+        position: absolute;
+        top: 50px;
+    }
+
+    .btn-button {
+        align-items: center;
+        background-clip: padding-box;
+        background-color: #fa6400;
+        border: 1px solid transparent;
+        border-radius: .25rem;
+        box-shadow: rgba(0, 0, 0, 0.02) 0 1px 3px 0;
+        box-sizing: border-box;
+        color: #fff;
+        cursor: pointer;
+        display: inline-flex;
+        font-size: 16px;
+        font-weight: 600;
+        justify-content: center;
+        line-height: 1.25;
+        margin: 0;
+        min-height: 3rem;
+        padding: calc(.875rem - 1px) calc(1.5rem - 1px);
+        position: relative;
+        text-decoration: none;
+        transition: all 250ms;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: manipulation;
+        vertical-align: baseline;
+        width: auto;
+    }
+
+    .btn-button:hover,
+    .btn-button:focus {
+        background-color: #D80032;
+        box-shadow: rgba(0, 0, 0, 0.1) 0 4px 12px;
+    }
+
+    .btn-button:hover {
+        transform: translateY(-1px);
+    }
+
+    .spinner-overlay {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(255, 255, 255, 0.8);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 999;
+    }
+
+    .spinner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .spinner-border {
+        width: 3rem;
+        height: 3rem;
+    }
+</style>
+
+<body>
+    <div class="main" style="display: flex; flex-direction: column ;align-items: center; justify-content: center;">
+        <div id="breadcrumb"></div>
+        <svg id="sunburst" width="800" height="750"></svg>
+        <div id="error-message" style="display: none;">
+            <img src="https://i.pinimg.com/originals/99/ca/43/99ca43076e565c78ab32778766969442.png" alt="image-error">
+        </div>
+        <div id="btn-chart" style="display: flex; gap: 0 20px;padding-top: 50px;">
+            <button class="btn-button" onclick="fetchAndDrawChart(1)">1</button>
+            <button class="btn-button" onclick="fetchAndDrawChart(2)">2</button>
+            <button class="btn-button" onclick="fetchAndDrawChart(3)">3</button>
+            <button class="btn-button" onclick="fetchAndDrawChart(4)">4</button>
+            <button class="btn-button" onclick="fetchAndDrawChart(5)">5</button>
+        </div>
+        <div class="spinner-overlay" id="spinner-overlay">
+            <div class="spinner-border text-primary" role="status">
+            </div>
+            <div class="spinner-border text-danger" role="status">
+            </div>
+            <div class="spinner-border text-success" role="status">
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+
+
+        // ======================  Fetch data ==========================
+
+        // Initialize currentPage to 1. This variable will track the currently displayed chart.
+        let currentPage = 1;
+
+        // Define an asynchronous function named fetchAndDrawChart that takes a chartIndex as a parameter.       
+        async function fetchAndDrawChart(chartIndex) {
+            try {
+                // Clear the content of an HTML element with the id "sunburst"
+                d3.select("#sunburst").html("");
+                d3.select("#spinner-overlay").style("display", "block");
+
+                // Fetch data from an API using the provided chartIndex.
+                const response = await fetch(`http://idrsoft.com:21280/shsoft/chartData${chartIndex}`);
+
+
+                // Check if the API response is okay (status code 200).
+                if (!response.ok) {
+                    throw new Error("Can't get data from API");
+                }
+
+                // Parse the JSON data from the response.
+                const data = await response.json();
+
+                // Call a function named drawChart with the data to render the chart.
+                drawChart(data);
+
+                // Update the currentPage to the current chartIndex.
+                currentPage = chartIndex;
+            } catch (error) {
+
+                // If an error occurs during the above process:
+                // Hide the "sunburst" element.
+                d3.select("#sunburst").style("display", "none");
+                d3.select("#spinner-overlay").style("display", "none");
+
+                // Display an error message.
+                d3.select("#error-message").style("display", "block");
+            } finally {
+                d3.select("#spinner-overlay").style("display", "none");
+            }
+        }
+
+        // Initial call to fetchAndDrawChart with the currentPage value.
+        fetchAndDrawChart(currentPage);
+
+
+
+        // ====================== Draw Sequestces sunburst ==========================
+
+
+        function drawChart(data) {
+            // Select the SVG element with the id "sunburst" using D3.js and store it in the 'svg' variable.
+            const svg = d3.select("#sunburst");
+
+            // Select other necessary DOM elements and store them in corresponding variables.
+            const tooltip = d3.select("#tooltip"); // Tooltip for displaying information.
+            const breadcrumb = d3.select("#breadcrumb"); // Breadcrumb trail for navigation.
+            const width = svg.attr("width"); // Get the width attribute of the SVG.
+            const height = svg.attr("height"); // Get the height attribute of the SVG.
+            const radius = Math.min(width, height) / 2; // Calculate the radius of the sunburst chart.
+
+
+            // Create a color scale for the chart using D3's interpolateRainbow and scaleOrdinal functions.
+            const color = d3.scaleOrdinal(d3.quantize(d3.interpolateRainbow, data.children.length + 1));
+
+            // Function to normalize the sizes of each child element based on the parent element
+            function normalizeChildrenSizes(node) {
+                // Check if the node has children; if not, exit the function
+                if (!node.children) return;
+
+                // Calculate the total size of all child elements
+                const totalSize = node.children.reduce((sum, child) => sum + child.size, 0);
+
+                // Normalize the size for each child element based on the total size
+                node.children.forEach(child => {
+                    child.normalizedSize = child.size / totalSize;
+                    // Recursively call the function for each child element's children
+                    normalizeChildrenSizes(child);
+                });
+            }
+            normalizeChildrenSizes(data);
+
+
+
+            // Create a partition layout for the sunburst chart, defining its size and hierarchy.
+            const partition = d3.partition()
+                .size([2 * Math.PI, radius * radius]);
+
+            // Create a hierarchy of data using D3's hierarchy function and specify how to calculate node values.
+            const root = d3.hierarchy(data)
+                .sum(d => d.normalizedSize)
+                .sort((a, b) => b.value - a.value);
+
+            // Create a group ('g') element within the SVG for drawing the chart.
+            const g = svg.append("g")
+                .attr("width", width)  // Set the width attribute for the group element.
+                .attr("height", width) // Set the height attribute for the group element.
+                .append("g")           // Append another group element within the first one.
+                .attr("transform", `translate(${width / 2},${width / 2})`); // Apply a transformation to the inner group.
+
+
+            // Define the arc function for rendering each segment of the sunburst.
+            const arc = d3.arc()
+                .startAngle(d => d.x0) // Set the start angle of the arc.
+                .endAngle(d => d.x1)   // Set the end angle of the arc.
+                .padAngle(d => Math.min((d.x1 - d.x0) / 2, 0.002)) // Set the padding angle between arcs.
+                .padRadius(radius * 1.5) // Set the padding radius to control the gap between levels.
+                .innerRadius(d => Math.sqrt(d.y0)) // Set the inner radius of the arc (for creating a hierarchy).
+                .outerRadius(d => Math.sqrt(d.y1) - 1); // Set the outer radius of the arc.
+
+            // Create path elements for each segment of the sunburst chart.
+            const path = g.selectAll("path")
+                .data(partition(root).descendants().filter(d => d.depth))
+                .enter().append("path")
+                .attr("fill", d => d.data.color) // Fill each segment with a color based on data.
+                .attr("d", arc) // Set the 'd' attribute to define the shape of each segment.
+                .on("mouseover", handleMouseOver) // Event handler for mouseover events.
+                .on("mouseout", handleMouseOut); // Event handler for mouseout events.
+
+
+
+
+            // ====================== HandleMouseOver ==========================
+
+
+
+
+
+            // Function to handle mouseover events .
+            function handleMouseOver(event, d) {
+
+                // Calculate the sequence of ancestors (parent nodes) for the hovered node, excluding the root node.
+                const sequence = d.ancestors().reverse().slice(1);
+
+                // Adjust the fill-opacity of all path elements based on whether they are in the sequence.
+                path.attr("fill-opacity", node =>
+                    sequence.indexOf(node) >= 0 ? 1.0 : 0.3
+                );
+
+
+                // Update the breadcrumb trail with the current sequence of nodes.
+                updateBreadcrumb(sequence);
+
+
+                // Calculate the percentage value of the hovered node relative to the root value.
+                const percentage = ((100 * d.value) / root.value).toPrecision(3);
+
+
+                updateCenterPercentage(percentage);
+
+            }
+
+
+
+
+            // ====================== HandleMouseOut ==========================
+
+
+
+
+
+
+            // Function to handle mouseout events .
+            function handleMouseOut(event, d) {
+                // Select all path elements and set their fill-opacity to 1 to restore the initial state.
+                svg.selectAll("path").attr("fill-opacity", 1);
+
+                updateBreadcrumb({ sequence: [] });
+                const totalPercentage = ((100 * maxValueSegment) / root.value).toPrecision(3);
+                updateCenterPercentage(totalPercentage);
+            }
+
+
+            // Function to update the center percentage display
+            function updateCenterPercentage(percentage) {
+                // Remove any existing center percentage text
+                g.select(".center-percentage").remove();
+
+                // Append a new text element for the center percentage
+                g.append("text")
+                    .attr("class", "center-percentage")
+                    .attr("text-anchor", "middle")
+                    .attr("dy", ".3em")
+                    .style("font-size", "2.5rem")
+                    .text(percentage + "%");
+            }
+
+            // Calculate the maximum value among immediate child segments (depth === 1)
+            const maxValueSegment = d3.max(root.descendants().filter(d => d.depth === 1), d => d.value);
+
+            // Calculate the total percentage based on the maximum value segment and the root's value
+            const totalPercentage = ((100 * maxValueSegment) / root.value).toPrecision(3);
+
+            // Call the function to update the center percentage display with the calculated total percentage
+            updateCenterPercentage(totalPercentage);
+
+
+
+            // ====================== Breadcrumb ==========================
+
+
+
+
+            // Function to update the breadcrumb trail.
+            function updateBreadcrumb(sequence) {
+                // Remove all existing elements within the breadcrumb container.
+                breadcrumb.selectAll("*").remove();
+
+                // Bind data to the breadcrumb container and set the fill color based on the node's name.     
+                const breadcrumbData = breadcrumb
+                    .selectAll("g")
+                    .data(sequence)
+                    .style("fill", d => color(d.data.name));
+
+
+                // Enter selection: create new breadcrumb items.
+                const breadcrumbEnter = breadcrumbData.enter()
+                    .append("g")
+                    .attr("class", "breadcrumb-item");
+
+                // Append text elements for each node in the sequence and set their properties.
+                breadcrumbEnter
+                    .append("text")
+                    .style("fill", d => color(d.data.name))
+                    .style("font-size", "20px")
+                    .text(d => `${d.data.name} > `);
+
+                // Get the last node in the sequence.
+                const lastBreadcrumb = sequence[sequence.length - 1];
+
+                // Append percentage text for the last node, if it exists.
+                breadcrumbEnter
+                    .append("text")
+                    .attr("dy", "1.2em") // Adjust the vertical position of the text.
+                    .style("font-size", "25px") // Set the font size.
+                    .text(d => {
+                        // Check if the current node 'd' is the last breadcrumb in the sequence.
+                        if (d === lastBreadcrumb) {
+                            // Calculate the percentage value based on the node's value relative to the root's value.
+                            const percentage = ((100 * d.value) / root.value).toPrecision(3);
+
+                            // Return the percentage value formatted with parentheses, e.g., "(25.0%)".                        
+                            return `(${percentage}%)`;
+                        }
+                    });
+
+            }
+        }
+
+    </script>
+</body>
+
+</html>
